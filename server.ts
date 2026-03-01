@@ -1,6 +1,7 @@
+import "dotenv/config";
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import Database from "better-sqlite3";
+import { createClient } from "@supabase/supabase-js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { google } from "googleapis";
@@ -8,37 +9,10 @@ import { google } from "googleapis";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const db = new Database("hishab_khata.db");
-
-// Initialize database
-db.exec(`
-  CREATE TABLE IF NOT EXISTS profile (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    name TEXT DEFAULT 'ব্যবহারকারী',
-    currency TEXT DEFAULT 'BDT',
-    avatar TEXT,
-    email TEXT,
-    phone TEXT,
-    bio TEXT,
-    theme TEXT DEFAULT 'light'
-  );
-
-  CREATE TABLE IF NOT EXISTS transactions (
-    id TEXT PRIMARY KEY,
-    amount REAL NOT NULL,
-    type TEXT NOT NULL,
-    category TEXT NOT NULL,
-    date TEXT NOT NULL,
-    note TEXT
-  );
-
-  CREATE TABLE IF NOT EXISTS google_auth (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    tokens TEXT
-  );
-
-  INSERT OR IGNORE INTO profile (id, name, currency, theme) VALUES (1, 'ব্যবহারকারী', 'BDT', 'light');
-`);
+// Supabase Client
+const supabaseUrl = process.env.SUPABASE_URL || "";
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 function getOAuth2Client() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -62,18 +36,20 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
 
   // API Routes
-  app.get("/api/state", (req, res) => {
+  app.get("/api/state", async (req, res) => {
     try {
-      const profile = db.prepare("SELECT * FROM profile WHERE id = 1").get();
-      const transactions = db.prepare("SELECT * FROM transactions ORDER BY date DESC, id DESC").all();
-      const googleAuth = db.prepare("SELECT tokens FROM google_auth WHERE id = 1").get();
+      const { data: profile } = await supabase.from("profile").select("*").eq("id", 1).single();
+      const { data: transactions } = await supabase.from("transactions").select("*").order("date", { ascending: false });
+      const { data: googleAuth } = await supabase.from("google_auth").select("tokens").eq("id", 1).single();
+      
       res.json({ 
-        profile, 
-        transactions, 
+        profile: profile || { id: 1, name: 'ব্যবহারকারী', currency: 'BDT', theme: 'light' }, 
+        transactions: transactions || [], 
         isGoogleConnected: !!googleAuth,
         hasGoogleConfig: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
       });
     } catch (error) {
+      console.error('Fetch state error:', error);
       res.status(500).json({ error: "Failed to fetch state" });
     }
   });
@@ -100,7 +76,7 @@ async function startServer() {
     }
     try {
       const { tokens } = await client.getToken(code as string);
-      db.prepare("INSERT OR REPLACE INTO google_auth (id, tokens) VALUES (1, ?)").run(JSON.stringify(tokens));
+      await supabase.from("google_auth").upsert({ id: 1, tokens: JSON.stringify(tokens) });
       res.send(`
         <html>
           <body>
@@ -119,7 +95,7 @@ async function startServer() {
 
   app.post("/api/google/sync", async (req, res) => {
     try {
-      const authData = db.prepare("SELECT tokens FROM google_auth WHERE id = 1").get();
+      const { data: authData } = await supabase.from("google_auth").select("tokens").eq("id", 1).single();
       if (!authData) {
         return res.status(401).json({ error: "Not connected to Google" });
       }
@@ -134,8 +110,8 @@ async function startServer() {
 
       const drive = google.drive({ version: 'v3', auth: client });
       
-      const profile = db.prepare("SELECT * FROM profile WHERE id = 1").get();
-      const transactions = db.prepare("SELECT * FROM transactions").all();
+      const { data: profile } = await supabase.from("profile").select("*").eq("id", 1).single();
+      const { data: transactions } = await supabase.from("transactions").select("*");
       const backupData = JSON.stringify({ profile, transactions }, null, 2);
 
       // Search for existing backup file
@@ -176,100 +152,102 @@ async function startServer() {
     }
   });
 
-  app.put("/api/profile", (req, res) => {
+  app.put("/api/profile", async (req, res) => {
     const { name, currency, avatar, email, phone, bio, theme } = req.body;
     try {
-      db.prepare(`
-        UPDATE profile 
-        SET name = ?, currency = ?, avatar = ?, email = ?, phone = ?, bio = ?, theme = ?
-        WHERE id = 1
-      `).run(name, currency, avatar, email, phone, bio, theme);
+      await supabase.from("profile").upsert({
+        id: 1,
+        name,
+        currency,
+        avatar,
+        email,
+        phone,
+        bio,
+        theme
+      });
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to update profile" });
     }
   });
 
-  app.post("/api/transactions", (req, res) => {
+  app.post("/api/transactions", async (req, res) => {
     const { id, amount, type, category, date, note } = req.body;
     try {
-      db.prepare(`
-        INSERT INTO transactions (id, amount, type, category, date, note)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(id, amount, type, category, date, note);
+      await supabase.from("transactions").insert({
+        id,
+        amount,
+        type,
+        category,
+        date,
+        note
+      });
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to add transaction" });
     }
   });
 
-  app.put("/api/transactions/:id", (req, res) => {
+  app.put("/api/transactions/:id", async (req, res) => {
     const { id } = req.params;
     const { amount, type, category, date, note } = req.body;
     try {
-      db.prepare(`
-        UPDATE transactions 
-        SET amount = ?, type = ?, category = ?, date = ?, note = ?
-        WHERE id = ?
-      `).run(amount, type, category, date, note, id);
+      await supabase.from("transactions").update({
+        amount,
+        type,
+        category,
+        date,
+        note
+      }).eq("id", id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to update transaction" });
     }
   });
 
-  app.delete("/api/transactions/:id", (req, res) => {
+  app.delete("/api/transactions/:id", async (req, res) => {
     const { id } = req.params;
     try {
-      db.prepare("DELETE FROM transactions WHERE id = ?").run(id);
+      await supabase.from("transactions").delete().eq("id", id);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete transaction" });
     }
   });
 
-  app.post("/api/import", (req, res) => {
+  app.post("/api/import", async (req, res) => {
     const { profile, transactions } = req.body;
     try {
       if (!profile || !transactions) {
         throw new Error("Invalid data format");
       }
 
-      const transaction = db.transaction(() => {
-        // Update profile with fallback values
-        db.prepare(`
-          UPDATE profile 
-          SET name = ?, currency = ?, avatar = ?, email = ?, phone = ?, bio = ?, theme = ?
-          WHERE id = 1
-        `).run(
-          profile.name || 'ব্যবহারকারী',
-          profile.currency || 'BDT',
-          profile.avatar || null,
-          profile.email || null,
-          profile.phone || null,
-          profile.bio || null,
-          profile.theme || 'light'
-        );
-
-        // Clear and insert transactions
-        db.prepare("DELETE FROM transactions").run();
-        const insert = db.prepare(`
-          INSERT INTO transactions (id, amount, type, category, date, note)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `);
-        
-        for (const t of transactions) {
-          insert.run(
-            t.id,
-            t.amount || 0,
-            t.type || 'expense',
-            t.category || 'অন্যান্য',
-            t.date || new Date().toISOString(),
-            t.note || null
-          );
-        }
+      // Update profile
+      await supabase.from("profile").upsert({
+        id: 1,
+        name: profile.name || 'ব্যবহারকারী',
+        currency: profile.currency || 'BDT',
+        avatar: profile.avatar || null,
+        email: profile.email || null,
+        phone: profile.phone || null,
+        bio: profile.bio || null,
+        theme: profile.theme || 'light'
       });
-      transaction();
+
+      // Clear and insert transactions
+      await supabase.from("transactions").delete().neq("id", "0"); // Delete all
+
+      const formattedTransactions = transactions.map((t: any) => ({
+        id: t.id,
+        amount: t.amount || 0,
+        type: t.type || 'expense',
+        category: t.category || 'অন্যান্য',
+        date: t.date || new Date().toISOString(),
+        note: t.note || null
+      }));
+
+      await supabase.from("transactions").insert(formattedTransactions);
+
       res.json({ success: true });
     } catch (error) {
       console.error('Import error:', error);
@@ -291,9 +269,18 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
+  if (process.env.NODE_ENV !== "production") {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  }
+
+  return app;
 }
 
-startServer();
+const appPromise = startServer();
+
+export default async (req: any, res: any) => {
+  const app = await appPromise;
+  return app(req, res);
+};
