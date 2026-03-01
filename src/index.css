@@ -5,6 +5,8 @@
   --font-sans: "Inter", "Hind Siliguri", ui-sans-serif, system-ui, sans-serif;
 }
 
+@variant dark (&:where(.dark, .dark *));
+
 @layer base {
   body {
     @apply font-sans antialiased;

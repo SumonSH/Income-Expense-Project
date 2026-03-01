@@ -16,10 +16,13 @@ export interface UserProfile {
   email?: string;
   phone?: string;
   bio?: string;
+  theme?: 'light' | 'dark';
 }
 
 export interface FinanceState {
   transactions: Transaction[];
   profile: UserProfile;
   lastBackup?: string;
+  isGoogleConnected?: boolean;
+  hasGoogleConfig?: boolean;
 }

@@ -26,7 +26,9 @@ import {
   Phone,
   FileText,
   Search,
-  Filter
+  Filter,
+  Moon,
+  Sun
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -47,7 +49,7 @@ import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useFinance } from './hooks/useFinance';
 import { CATEGORIES, CURRENCIES } from './constants';
-import { Transaction, TransactionType } from './types';
+import { Transaction, TransactionType, UserProfile } from './types';
 
 // Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -57,14 +59,16 @@ function cn(...inputs: ClassValue[]) {
 export default function App() {
   const { 
     state, 
+    loading,
     addTransaction, 
     deleteTransaction, 
     updateTransaction,
     updateProfile, 
     importData, 
-    exportData 
+    exportData,
+    syncWithGoogle
   } = useFinance();
-  
+
   const [activeTab, setActiveTab] = useState<'dashboard' | 'transactions' | 'profile'>('dashboard');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
@@ -72,6 +76,43 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [showImportSuccess, setShowImportSuccess] = useState(false);
+  
+  // Local state for profile inputs to prevent typing issues with complex scripts
+  const [profileForm, setProfileForm] = useState<UserProfile>(state.profile);
+
+  useEffect(() => {
+    setProfileForm(state.profile);
+  }, [state.profile]);
+
+  const handleProfileChange = (field: keyof UserProfile, value: string) => {
+    setProfileForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  const syncProfile = () => {
+    updateProfile(profileForm);
+  };
+
+  // Theme management
+  const theme = state.profile.theme || 'light';
+  
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+      document.body.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      document.body.classList.remove('dark');
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    updateProfile({
+      ...state.profile,
+      theme: theme === 'light' ? 'dark' : 'light'
+    });
+  };
 
   // Handle scroll for "Go to Top" button
   useEffect(() => {
@@ -226,8 +267,22 @@ export default function App() {
 
   const currencySymbol = CURRENCIES.find(c => c.code === state.profile.currency)?.symbol || '৳';
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#F8F9FA] dark:bg-[#0F172A] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-gray-500 dark:text-gray-400 font-medium">ডাটা লোড হচ্ছে...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans selection:bg-emerald-100 selection:text-emerald-900">
+    <div className={cn(
+      "min-h-screen bg-[#F8F9FA] dark:bg-[#0F172A] text-[#1A1A1A] dark:text-gray-100 font-sans selection:bg-emerald-100 dark:selection:bg-emerald-500/30 selection:text-emerald-900 dark:selection:text-emerald-100 transition-colors duration-300",
+      theme === 'dark' ? 'dark' : ''
+    )}>
       {/* Sidebar Overlay */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -243,23 +298,25 @@ export default function App() {
 
       {/* Sidebar / Navigation */}
       <nav className={cn(
-        "fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-100 transform transition-transform duration-300 ease-in-out lg:translate-x-0",
+        "fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-[#1E293B] border-r border-gray-100 dark:border-gray-800 transform transition-transform duration-300 ease-in-out lg:translate-x-0",
         isSidebarOpen ? "translate-x-0" : "-translate-x-full"
       )}>
         <div className="flex flex-col h-full p-6">
           <div className="flex items-center justify-between mb-8">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-100">
+              <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-emerald-100 dark:shadow-none">
                 <Wallet size={22} />
               </div>
-              <h1 className="text-xl font-bold tracking-tight text-gray-900">হিসাব খাতা</h1>
+              <h1 className="text-xl font-bold tracking-tight text-gray-900 dark:text-white">হিসাব খাতা</h1>
             </div>
-            <button 
-              onClick={() => setIsSidebarOpen(false)}
-              className="lg:hidden p-2 hover:bg-gray-50 rounded-lg text-gray-400"
-            >
-              <X size={20} />
-            </button>
+            <div className="flex items-center gap-1">
+              <button 
+                onClick={() => setIsSidebarOpen(false)}
+                className="lg:hidden p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg text-gray-400 dark:text-gray-500"
+              >
+                <X size={20} />
+              </button>
+            </div>
           </div>
 
           <div className="space-y-2 flex-1">
@@ -283,18 +340,18 @@ export default function App() {
             />
           </div>
 
-          <div className="pt-6 border-t border-gray-100">
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50">
+          <div className="pt-6 border-t border-gray-100 dark:border-gray-800">
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-800/50">
               {state.profile.avatar ? (
-                <img src={state.profile.avatar} alt="Avatar" className="w-10 h-10 rounded-full object-cover border border-emerald-100" />
+                <img src={state.profile.avatar} alt="Avatar" className="w-10 h-10 rounded-full object-cover border border-emerald-100 dark:border-emerald-500/20" />
               ) : (
-                <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold">
+                <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center text-emerald-700 dark:text-emerald-400 font-bold">
                   {state.profile.name.charAt(0)}
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate">{state.profile.name}</p>
-                <p className="text-xs text-gray-500 truncate">প্রফেশনাল ইউজার</p>
+                <p className="text-sm font-semibold truncate dark:text-white">{state.profile.name}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">প্রফেশনাল ইউজার</p>
               </div>
             </div>
           </div>
@@ -304,20 +361,27 @@ export default function App() {
       {/* Main Content */}
       <main className="lg:ml-64 min-h-screen pb-24 lg:pb-0">
         {/* Header */}
-        <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-gray-100 px-6 py-4 flex items-center justify-between">
+        <header className="sticky top-0 z-30 bg-white/80 dark:bg-[#0F172A]/80 backdrop-blur-xl border-b border-gray-100 dark:border-gray-800 px-6 py-4 flex items-center justify-between">
           <button 
             onClick={() => setIsSidebarOpen(true)}
-            className="lg:hidden p-2 hover:bg-gray-50 rounded-xl text-gray-600 border border-gray-100"
+            className="lg:hidden p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl text-gray-600 dark:text-gray-400 border border-gray-100 dark:border-gray-800"
           >
             <Menu size={20} />
           </button>
-          <h2 className="text-lg font-bold text-gray-900">
+          <h2 className="text-lg font-bold text-gray-900 dark:text-white">
             {activeTab === 'dashboard' ? 'ড্যাশবোর্ড' : activeTab === 'transactions' ? 'লেনদেন সমূহ' : 'প্রোফাইল সেটিংস'}
           </h2>
           <div className="flex items-center gap-3">
             <button 
+              onClick={toggleTheme}
+              className="p-2 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-xl text-gray-400 dark:text-gray-500 transition-colors border border-gray-100 dark:border-gray-800"
+              title={theme === 'light' ? 'ডার্ক মোড' : 'লাইট মোড'}
+            >
+              {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+            </button>
+            <button 
               onClick={() => setIsAddModalOpen(true)}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 text-sm font-bold transition-all shadow-md shadow-emerald-100 active:scale-95"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 text-sm font-bold transition-all shadow-md shadow-emerald-100 dark:shadow-none active:scale-95"
             >
               <Plus size={18} />
               <span className="hidden sm:inline">নতুন যোগ করুন</span>
@@ -365,20 +429,26 @@ export default function App() {
 
                 {/* Charts Section */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                    <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
+                  <div className="bg-white dark:bg-[#1E293B] p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                    <h3 className="text-lg font-bold mb-6 flex items-center gap-2 dark:text-white">
                       <TrendingUp size={20} className="text-emerald-600" />
                       আয় বনাম ব্যয় (গত ৬ মাস)
                     </h3>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={chartData} style={{ outline: 'none' }} accessibilityLayer={false}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={theme === 'dark' ? '#334155' : '#f0f0f0'} />
                           <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9ca3af' }} />
                           <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9ca3af' }} />
                           <Tooltip 
-                            contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-                            cursor={{ fill: '#f9fafb' }}
+                            contentStyle={{ 
+                              borderRadius: '12px', 
+                              border: 'none', 
+                              boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                              backgroundColor: theme === 'dark' ? '#1E293B' : '#FFFFFF',
+                              color: theme === 'dark' ? '#FFFFFF' : '#1A1A1A'
+                            }}
+                            cursor={{ fill: theme === 'dark' ? '#334155' : '#f9fafb' }}
                           />
                           <Bar dataKey="income" fill="#10b981" radius={[4, 4, 0, 0]} name="আয়" />
                           <Bar dataKey="expense" fill="#ef4444" radius={[4, 4, 0, 0]} name="ব্যয়" />
@@ -387,8 +457,8 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                    <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
+                  <div className="bg-white dark:bg-[#1E293B] p-6 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                    <h3 className="text-lg font-bold mb-6 flex items-center gap-2 dark:text-white">
                       <TrendingDown size={20} className="text-rose-600" />
                       ব্যয়ের খাতসমূহ
                     </h3>
@@ -410,12 +480,18 @@ export default function App() {
                               ))}
                             </Pie>
                             <Tooltip 
-                              contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
+                              contentStyle={{ 
+                                borderRadius: '12px', 
+                                border: 'none', 
+                                boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                                backgroundColor: theme === 'dark' ? '#1E293B' : '#FFFFFF',
+                                color: theme === 'dark' ? '#FFFFFF' : '#1A1A1A'
+                              }}
                             />
                           </PieChart>
                         </ResponsiveContainer>
                       ) : (
-                        <div className="text-center text-gray-400">
+                        <div className="text-center text-gray-400 dark:text-gray-500">
                           <p>কোন ব্যয়ের তথ্য নেই</p>
                         </div>
                       )}
@@ -424,17 +500,17 @@ export default function App() {
                 </div>
 
                 {/* Recent Transactions */}
-                <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="p-6 border-b border-gray-50 flex items-center justify-between">
-                    <h3 className="text-lg font-bold">সাম্প্রতিক লেনদেন</h3>
+                <div className="bg-white dark:bg-[#1E293B] rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+                  <div className="p-6 border-b border-gray-50 dark:border-gray-800 flex items-center justify-between">
+                    <h3 className="text-lg font-bold dark:text-white">সাম্প্রতিক লেনদেন</h3>
                     <button 
                       onClick={() => setActiveTab('transactions')}
-                      className="text-emerald-600 text-sm font-medium hover:underline"
+                      className="text-emerald-600 dark:text-emerald-400 text-sm font-medium hover:underline"
                     >
                       সব দেখুন
                     </button>
                   </div>
-                  <div className="divide-y divide-gray-50">
+                  <div className="divide-y divide-gray-50 dark:divide-gray-800">
                     {state.transactions.slice(0, 5).map((t: Transaction) => (
                       <TransactionItem 
                         key={t.id} 
@@ -445,7 +521,7 @@ export default function App() {
                       />
                     ))}
                     {state.transactions.length === 0 && (
-                      <div className="p-10 text-center text-gray-400">
+                      <div className="p-10 text-center text-gray-400 dark:text-gray-500">
                         কোন লেনদেন পাওয়া যায়নি
                       </div>
                     )}
@@ -464,18 +540,18 @@ export default function App() {
               >
                 {/* Search Bar */}
                 <div className="relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                  <input 
-                    type="text" 
-                    placeholder="লেনদেন খুঁজুন (ক্যাটাগরি বা নোট)..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-12 pr-4 py-4 bg-white rounded-2xl border border-gray-100 shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
-                  />
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" size={20} />
+                    <input 
+                      type="text" 
+                      placeholder="লেনদেন খুঁজুন (ক্যাটাগরি বা নোট)..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-12 pr-4 py-4 bg-white dark:bg-[#1E293B] rounded-2xl border border-gray-100 dark:border-gray-800 shadow-sm focus:ring-2 focus:ring-emerald-500 outline-none transition-all dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
+                    />
                 </div>
 
-                <div className="bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="divide-y divide-gray-50">
+                <div className="bg-white dark:bg-[#1E293B] rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm overflow-hidden">
+                  <div className="divide-y divide-gray-50 dark:divide-gray-800">
                     {filteredTransactions.map((t: Transaction) => (
                       <TransactionItem 
                         key={t.id} 
@@ -487,11 +563,11 @@ export default function App() {
                     ))}
                     {filteredTransactions.length === 0 && (
                       <div className="p-20 text-center">
-                        <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300">
+                        <div className="w-20 h-20 bg-gray-50 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300 dark:text-gray-600">
                           <Search size={40} />
                         </div>
-                        <h4 className="text-lg font-semibold text-gray-900">কোন ফলাফল পাওয়া যায়নি</h4>
-                        <p className="text-gray-500">অন্য কোনো শব্দ দিয়ে চেষ্টা করুন</p>
+                        <h4 className="text-lg font-semibold text-gray-900 dark:text-white">কোন ফলাফল পাওয়া যায়নি</h4>
+                        <p className="text-gray-500 dark:text-gray-400">অন্য কোনো শব্দ দিয়ে চেষ্টা করুন</p>
                       </div>
                     )}
                   </div>
@@ -508,17 +584,17 @@ export default function App() {
                 className="max-w-2xl mx-auto space-y-8"
               >
                 {/* Profile Card */}
-                <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm">
+                <div className="bg-white dark:bg-[#1E293B] p-8 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
                   <div className="flex flex-col items-center text-center mb-10">
                     <div className="relative group">
-                      <div className="w-28 h-28 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 text-4xl font-bold mb-4 border-4 border-white shadow-xl overflow-hidden">
+                      <div className="w-28 h-28 rounded-full bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center text-emerald-700 dark:text-emerald-400 text-4xl font-bold mb-4 border-4 border-white dark:border-gray-800 shadow-xl overflow-hidden">
                         {state.profile.avatar ? (
                           <img src={state.profile.avatar} alt="Profile" className="w-full h-full object-cover" />
                         ) : (
                           state.profile.name.charAt(0)
                         )}
                       </div>
-                      <label className="absolute bottom-4 right-0 p-2 bg-emerald-600 text-white rounded-full shadow-lg border-2 border-white cursor-pointer hover:bg-emerald-700 transition-all hover:scale-110">
+                      <label className="absolute bottom-4 right-0 p-2 bg-emerald-600 text-white rounded-full shadow-lg border-2 border-white dark:border-gray-800 cursor-pointer hover:bg-emerald-700 transition-all hover:scale-110">
                         <Camera size={18} />
                         <input 
                           type="file" 
@@ -537,100 +613,108 @@ export default function App() {
                         />
                       </label>
                     </div>
-                    <h3 className="text-2xl font-bold text-gray-900">{state.profile.name}</h3>
-                    <p className="text-gray-400 text-sm mt-1">সদস্য হয়েছেন: {format(new Date(), 'MMMM yyyy', { locale: bn })}</p>
+                    <h3 className="text-2xl font-bold text-gray-900 dark:text-white">{state.profile.name}</h3>
+                    <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">সদস্য হয়েছেন: {format(new Date(), 'MMMM yyyy', { locale: bn })}</p>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
-                      <label className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-wider">
+                      <label className="flex items-center gap-2 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
                         <User size={14} /> আপনার নাম
                       </label>
                       <input 
                         type="text" 
-                        value={state.profile.name}
-                        onChange={(e) => updateProfile({ ...state.profile, name: e.target.value })}
+                        value={profileForm.name}
+                        onChange={(e) => handleProfileChange('name', e.target.value)}
+                        onBlur={syncProfile}
                         placeholder="আপনার নাম লিখুন"
-                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-medium"
+                        className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border-none focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-medium dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-wider">
+                      <label className="flex items-center gap-2 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
                         <Wallet size={14} /> কারেন্সি
                       </label>
                       <select 
-                        value={state.profile.currency}
-                        onChange={(e) => updateProfile({ ...state.profile, currency: e.target.value })}
-                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-medium"
+                        value={profileForm.currency}
+                        onChange={(e) => {
+                          const newProfile = { ...profileForm, currency: e.target.value };
+                          setProfileForm(newProfile);
+                          updateProfile(newProfile);
+                        }}
+                        className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border-none focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-medium dark:text-white"
                       >
                         {CURRENCIES.map(c => (
-                          <option key={c.code} value={c.code}>{c.label}</option>
+                          <option key={c.code} value={c.code} className="dark:bg-gray-800">{c.label}</option>
                         ))}
                       </select>
                     </div>
                     <div className="space-y-2">
-                      <label className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-wider">
+                      <label className="flex items-center gap-2 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
                         <Mail size={14} /> ইমেইল
                       </label>
                       <input 
                         type="email" 
-                        value={state.profile.email || ''}
-                        onChange={(e) => updateProfile({ ...state.profile, email: e.target.value })}
+                        value={profileForm.email || ''}
+                        onChange={(e) => handleProfileChange('email', e.target.value)}
+                        onBlur={syncProfile}
                         placeholder="example@mail.com"
-                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-medium"
+                        className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border-none focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-medium dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-wider">
+                      <label className="flex items-center gap-2 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
                         <Phone size={14} /> ফোন নম্বর
                       </label>
                       <input 
                         type="tel" 
-                        value={state.profile.phone || ''}
-                        onChange={(e) => updateProfile({ ...state.profile, phone: e.target.value })}
+                        value={profileForm.phone || ''}
+                        onChange={(e) => handleProfileChange('phone', e.target.value)}
+                        onBlur={syncProfile}
                         placeholder="017XXXXXXXX"
-                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-medium"
+                        className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border-none focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-medium dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
                       />
                     </div>
                     <div className="md:col-span-2 space-y-2">
-                      <label className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-wider">
+                      <label className="flex items-center gap-2 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
                         <FileText size={14} /> বায়ো (Bio)
                       </label>
                       <textarea 
-                        value={state.profile.bio || ''}
-                        onChange={(e) => updateProfile({ ...state.profile, bio: e.target.value })}
+                        value={profileForm.bio || ''}
+                        onChange={(e) => handleProfileChange('bio', e.target.value)}
+                        onBlur={syncProfile}
                         placeholder="আপনার সম্পর্কে কিছু লিখুন..."
                         rows={3}
-                        className="w-full px-4 py-3 rounded-xl bg-gray-50 border-none focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-medium resize-none"
+                        className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-800 border-none focus:ring-2 focus:ring-emerald-500 outline-none transition-all font-medium resize-none dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
                       />
                     </div>
                   </div>
                 </div>
 
                 {/* Data Management */}
-                <div className="bg-white p-8 rounded-3xl border border-gray-100 shadow-sm">
-                  <h4 className="text-lg font-bold mb-6 flex items-center gap-2">
-                    <Settings size={20} className="text-gray-600" />
+                <div className="bg-white dark:bg-[#1E293B] p-8 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm">
+                  <h4 className="text-lg font-bold mb-6 flex items-center gap-2 dark:text-white">
+                    <Settings size={20} className="text-gray-600 dark:text-gray-400" />
                     ডাটা ম্যানেজমেন্ট
                   </h4>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <button 
                       onClick={exportData}
-                      className="flex items-center justify-center gap-3 p-4 rounded-2xl border border-gray-100 bg-gray-50 hover:bg-gray-100 transition-all group"
+                      className="flex items-center justify-center gap-3 p-4 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all group"
                     >
-                      <Download size={20} className="text-emerald-600 group-hover:scale-110 transition-transform" />
+                      <Download size={20} className="text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform" />
                       <div className="text-left">
-                        <p className="font-semibold text-sm">এক্সপোর্ট করুন</p>
-                        <p className="text-xs text-gray-500">JSON ফরম্যাটে ডাউনলোড</p>
+                        <p className="font-semibold text-sm dark:text-white">এক্সপোর্ট করুন</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">JSON ফরম্যাটে ডাউনলোড</p>
                       </div>
                     </button>
 
-                    <label className="flex items-center justify-center gap-3 p-4 rounded-2xl border border-gray-100 bg-gray-50 hover:bg-gray-100 transition-all cursor-pointer group">
-                      <Upload size={20} className="text-blue-600 group-hover:scale-110 transition-transform" />
+                    <label className="flex items-center justify-center gap-3 p-4 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-all cursor-pointer group">
+                      <Upload size={20} className="text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform" />
                       <div className="text-left">
-                        <p className="font-semibold text-sm">ইম্পোর্ট করুন</p>
-                        <p className="text-xs text-gray-500">ব্যাকআপ ফাইল আপলোড</p>
+                        <p className="font-semibold text-sm dark:text-white">ইম্পোর্ট করুন</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">ব্যাকআপ ফাইল আপলোড</p>
                       </div>
                       <input 
                         type="file" 
@@ -642,11 +726,19 @@ export default function App() {
                             const reader = new FileReader();
                             reader.onload = (event) => {
                               try {
-                                const data = JSON.parse(event.target?.result as string);
-                                importData(data);
-                                alert('ডাটা সফলভাবে ইম্পোর্ট করা হয়েছে!');
+                                const result = event.target?.result;
+                                if (typeof result === 'string') {
+                                  const data = JSON.parse(result);
+                                  importData(data);
+                                  // Use a small timeout to ensure the alert doesn't block the state update
+                                  setTimeout(() => {
+                                    setShowImportSuccess(true);
+                                  }, 100);
+                                }
                               } catch (err) {
-                                alert('ভুল ফাইল ফরম্যাট!');
+                                alert('ভুল ফাইল!');
+                              } finally {
+                                e.target.value = '';
                               }
                             };
                             reader.readAsText(file);
@@ -656,19 +748,43 @@ export default function App() {
                     </label>
                   </div>
 
-                  <div className="mt-8 p-6 rounded-2xl bg-emerald-50 border border-emerald-100">
+                  <div className="mt-8 p-6 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20">
                     <div className="flex items-start gap-4">
                       <div className="p-3 bg-emerald-600 rounded-xl text-white">
                         <Cloud size={24} />
                       </div>
                       <div className="flex-1">
-                        <h5 className="font-bold text-emerald-900">গুগল অটোমেটিক ব্যাকআপ</h5>
-                        <p className="text-sm text-emerald-700 mt-1">আপনার সকল ডাটা সুরক্ষিত রাখতে গুগল ড্রাইভের সাথে সিঙ্ক করুন।</p>
+                        <h5 className="font-bold text-emerald-900 dark:text-emerald-400">গুগল অটোমেটিক ব্যাকআপ</h5>
+                        <p className="text-sm text-emerald-700 dark:text-emerald-500 mt-1">আপনার সকল ডাটা সুরক্ষিত রাখতে গুগল ড্রাইভের সাথে সিঙ্ক করুন।</p>
                         <button 
-                          className="mt-4 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-emerald-200 active:scale-95"
-                          onClick={() => alert('গুগল ড্রাইভ ইন্টিগ্রেশন শীঘ্রই আসছে!')}
+                          className={cn(
+                            "mt-4 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-emerald-200 dark:shadow-none active:scale-95 flex items-center gap-2",
+                            isSyncing && "opacity-70 cursor-not-allowed"
+                          )}
+                          disabled={isSyncing}
+                          onClick={async () => {
+                            if (!state.hasGoogleConfig) {
+                              alert('দয়া করে AI Studio-র "Secrets" প্যানেলে গিয়ে GOOGLE_CLIENT_ID এবং GOOGLE_CLIENT_SECRET সেট করুন।');
+                              return;
+                            }
+                            setIsSyncing(true);
+                            const success = await syncWithGoogle();
+                            setIsSyncing(false);
+                            if (success) {
+                              alert('গুগল ড্রাইভের সাথে সফলভাবে সিঙ্ক হয়েছে!');
+                            } else {
+                              alert('সিঙ্ক করতে সমস্যা হয়েছে। দয়া করে আপনার Client ID এবং Secret সঠিক কিনা চেক করুন।');
+                            }
+                          }}
                         >
-                          এখনই সিঙ্ক করুন
+                          {isSyncing ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                              সিঙ্ক হচ্ছে...
+                            </>
+                          ) : (
+                            'এখনই সিঙ্ক করুন'
+                          )}
                         </button>
                       </div>
                     </div>
@@ -681,7 +797,7 @@ export default function App() {
       </main>
 
       {/* Mobile Bottom Nav */}
-      <div className="lg:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-100 px-6 py-3 flex items-center justify-around z-40">
+      <div className="lg:hidden fixed bottom-0 inset-x-0 bg-white dark:bg-[#1E293B] border-t border-gray-100 dark:border-gray-800 px-6 py-3 flex items-center justify-around z-40">
         <MobileNavItem 
           icon={<LayoutDashboard size={24} />} 
           active={activeTab === 'dashboard'} 
@@ -689,7 +805,7 @@ export default function App() {
         />
         <button 
           onClick={() => setIsAddModalOpen(true)}
-          className="w-14 h-14 bg-emerald-600 rounded-full flex items-center justify-center text-white shadow-lg shadow-emerald-200 -mt-10 border-4 border-white active:scale-90 transition-transform"
+          className="w-14 h-14 bg-emerald-600 rounded-full flex items-center justify-center text-white shadow-lg shadow-emerald-200 dark:shadow-none -mt-10 border-4 border-white dark:border-[#1E293B] active:scale-90 transition-transform"
         >
           <Plus size={32} />
         </button>
@@ -738,17 +854,17 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl p-8 text-center"
+              className="relative w-full max-w-sm bg-white dark:bg-[#1E293B] rounded-3xl shadow-2xl p-8 text-center"
             >
-              <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="w-16 h-16 bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Trash2 size={32} />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">আপনি কি নিশ্চিত?</h3>
-              <p className="text-gray-500 mb-8">এই লেনদেনটি চিরতরে মুছে ফেলা হবে। আপনি কি এটি ডিলিট করতে চান?</p>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">আপনি কি নিশ্চিত?</h3>
+              <p className="text-gray-500 dark:text-gray-400 mb-8">এই লেনদেনটি চিরতরে মুছে ফেলা হবে। আপনি কি এটি ডিলিট করতে চান?</p>
               <div className="flex gap-3">
                 <button 
                   onClick={() => setDeletingTransactionId(null)}
-                  className="flex-1 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold hover:bg-gray-200 transition-all"
+                  className="flex-1 py-3 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-all"
                 >
                   না, থাক
                 </button>
@@ -757,7 +873,7 @@ export default function App() {
                     deleteTransaction(deletingTransactionId);
                     setDeletingTransactionId(null);
                   }}
-                  className="flex-1 py-3 rounded-xl bg-rose-600 text-white font-bold hover:bg-rose-700 transition-all shadow-lg shadow-rose-200"
+                  className="flex-1 py-3 rounded-xl bg-rose-600 text-white font-bold hover:bg-rose-700 transition-all shadow-lg shadow-rose-200 dark:shadow-none"
                 >
                   হ্যাঁ, ডিলিট করুন
                 </button>
@@ -785,16 +901,16 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-y-auto max-h-[90vh] my-8 custom-scrollbar"
+              className="relative w-full max-w-lg bg-white dark:bg-[#1E293B] rounded-3xl shadow-2xl overflow-y-auto max-h-[90vh] my-8 custom-scrollbar"
             >
-              <div className="sticky top-0 z-10 bg-white p-5 border-b border-gray-100 flex items-center justify-between">
-                <h3 className="text-lg font-bold">{editingTransaction ? 'লেনদেন এডিট করুন' : 'নতুন লেনদেন'}</h3>
+              <div className="sticky top-0 z-10 bg-white dark:bg-[#1E293B] p-5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                <h3 className="text-lg font-bold dark:text-white">{editingTransaction ? 'লেনদেন এডিট করুন' : 'নতুন লেনদেন'}</h3>
                 <button 
                   onClick={() => {
                     setIsAddModalOpen(false);
                     setEditingTransaction(null);
                   }}
-                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors dark:text-gray-400"
                 >
                   <X size={18} />
                 </button>
@@ -802,6 +918,7 @@ export default function App() {
               
               <AddTransactionForm 
                 initialData={editingTransaction}
+                theme={theme}
                 onAdd={(t) => {
                   addTransaction(t);
                   setIsAddModalOpen(false);
@@ -812,6 +929,39 @@ export default function App() {
                   setEditingTransaction(null);
                 }}
               />
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Import Success Modal */}
+      <AnimatePresence>
+        {showImportSuccess && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowImportSuccess(false)}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-sm bg-white dark:bg-[#1E293B] rounded-3xl shadow-2xl p-8 text-center"
+            >
+              <div className="w-16 h-16 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Check size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">সফল হয়েছে!</h3>
+              <p className="text-gray-500 dark:text-gray-400 mb-8">আপনার ডাটা সফলভাবে ইম্পোর্ট করা হয়েছে।</p>
+              <button 
+                onClick={() => setShowImportSuccess(false)}
+                className="w-full py-3.5 bg-emerald-600 text-white rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 dark:shadow-none active:scale-[0.98]"
+              >
+                ঠিক আছে
+              </button>
             </motion.div>
           </div>
         )}
@@ -829,8 +979,8 @@ const NavItem: React.FC<{ icon: React.ReactNode, label: string, active: boolean,
       className={cn(
         "w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all",
         active 
-          ? "bg-emerald-50 text-emerald-700 shadow-sm" 
-          : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+          ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 shadow-sm" 
+          : "text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white"
       )}
     >
       {icon}
@@ -846,7 +996,7 @@ const MobileNavItem: React.FC<{ icon: React.ReactNode, active: boolean, onClick:
       onClick={onClick}
       className={cn(
         "p-2 transition-all",
-        active ? "text-emerald-600" : "text-gray-400"
+        active ? "text-emerald-600 dark:text-emerald-400" : "text-gray-400 dark:text-gray-500"
       )}
     >
       {icon}
@@ -856,13 +1006,13 @@ const MobileNavItem: React.FC<{ icon: React.ReactNode, active: boolean, onClick:
 
 const StatCard: React.FC<{ title: string, amount: number, symbol: string, icon: React.ReactNode, trend: string, color: 'emerald' | 'blue' | 'rose' }> = ({ title, amount, symbol, icon, trend, color }) => {
   const colorClasses = {
-    emerald: "bg-emerald-50 text-emerald-600",
-    blue: "bg-blue-50 text-blue-600",
-    rose: "bg-rose-50 text-rose-600"
+    emerald: "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+    blue: "bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400",
+    rose: "bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400"
   };
 
   return (
-    <div className="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm hover:shadow-lg hover:shadow-gray-200/40 transition-all duration-300 group">
+    <div className="bg-white dark:bg-[#1E293B] p-5 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow-lg dark:hover:shadow-none transition-all duration-300 group">
       <div className="flex items-center justify-between mb-4">
         <div className={cn("p-3 rounded-xl transition-transform group-hover:scale-110 duration-300", colorClasses[color])}>
           {icon}
@@ -871,8 +1021,8 @@ const StatCard: React.FC<{ title: string, amount: number, symbol: string, icon: 
           {trend}
         </span>
       </div>
-      <p className="text-xs text-gray-400 font-semibold mb-1">{title}</p>
-      <h4 className="text-2xl font-black tracking-tight text-gray-900">
+      <p className="text-xs text-gray-400 dark:text-gray-500 font-semibold mb-1">{title}</p>
+      <h4 className="text-2xl font-black tracking-tight text-gray-900 dark:text-white">
         {symbol}{amount.toLocaleString('bn-BD')}
       </h4>
     </div>
@@ -889,39 +1039,41 @@ const TransactionItem: React.FC<{
   const category = CATEGORIES[transaction.type].find(c => c.id === transaction.category);
 
   return (
-    <div className="flex items-center gap-4 p-4 hover:bg-gray-50/80 transition-all group">
+    <div className="flex items-center gap-4 p-4 hover:bg-gray-50/80 dark:hover:bg-gray-800/50 transition-all group">
       <div className={cn(
         "w-12 h-12 rounded-xl flex items-center justify-center shrink-0 shadow-sm",
-        isIncome ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+        isIncome 
+          ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" 
+          : "bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400"
       )}>
         {isIncome ? <ArrowUpCircle size={24} /> : <ArrowDownCircle size={24} />}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="font-bold text-gray-900 text-base truncate">{category?.label || transaction.category || 'অন্যান্য'}</p>
-        <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+        <p className="font-bold text-gray-900 dark:text-white text-base truncate">{category?.label || transaction.category || 'অন্যান্য'}</p>
+        <p className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1 mt-0.5">
           <Calendar size={12} />
           {format(parseISO(transaction.date), 'dd MMMM, yyyy', { locale: bn })}
-          {transaction.note && <span className="text-gray-300">|</span>}
+          {transaction.note && <span className="text-gray-300 dark:text-gray-700">|</span>}
           {transaction.note && <span className="truncate">{transaction.note}</span>}
         </p>
       </div>
       <div className="text-right shrink-0">
         <p className={cn(
           "font-black text-lg tracking-tight",
-          isIncome ? "text-emerald-600" : "text-rose-600"
+          isIncome ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
         )}>
           {isIncome ? '+' : '-'}{symbol}{transaction.amount.toLocaleString('bn-BD')}
         </p>
         <div className="flex justify-end mt-0.5 gap-1">
           <button 
             onClick={() => onEdit(transaction)}
-            className="text-gray-300 hover:text-emerald-600 transition-all opacity-0 group-hover:opacity-100 p-1 hover:bg-emerald-50 rounded-lg"
+            className="text-gray-300 dark:text-gray-600 hover:text-emerald-600 dark:hover:text-emerald-400 transition-all opacity-0 group-hover:opacity-100 p-1 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg"
           >
             <Pencil size={16} />
           </button>
           <button 
             onClick={() => onDelete(transaction.id)}
-            className="text-gray-300 hover:text-rose-500 transition-all opacity-0 group-hover:opacity-100 p-1 hover:bg-rose-50 rounded-lg"
+            className="text-gray-300 dark:text-gray-600 hover:text-rose-500 dark:hover:text-rose-400 transition-all opacity-0 group-hover:opacity-100 p-1 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg"
           >
             <Trash2 size={16} />
           </button>
@@ -934,8 +1086,9 @@ const TransactionItem: React.FC<{
 const AddTransactionForm: React.FC<{ 
   onAdd: (t: Omit<Transaction, 'id'>) => void,
   onUpdate?: (t: Transaction) => void,
-  initialData?: Transaction | null
-}> = ({ onAdd, onUpdate, initialData }) => {
+  initialData?: Transaction | null,
+  theme?: 'light' | 'dark'
+}> = ({ onAdd, onUpdate, initialData, theme }) => {
   const [type, setType] = useState<TransactionType>(initialData?.type || 'expense');
   const [amount, setAmount] = useState(initialData?.amount.toString() || '');
   const [category, setCategory] = useState(() => {
@@ -983,13 +1136,13 @@ const AddTransactionForm: React.FC<{
   return (
     <form onSubmit={handleSubmit} className="p-5 space-y-5 pb-20">
       {/* Type Toggle */}
-      <div className="flex p-1 bg-gray-100 rounded-xl">
+      <div className="flex p-1 bg-gray-100 dark:bg-gray-800 rounded-xl">
         <button
           type="button"
           onClick={() => { setType('expense'); setCategory(''); }}
           className={cn(
             "flex-1 py-2.5 rounded-lg text-sm font-bold transition-all",
-            type === 'expense' ? "bg-white text-rose-600 shadow-sm" : "text-gray-500"
+            type === 'expense' ? "bg-white dark:bg-gray-700 text-rose-600 dark:text-rose-400 shadow-sm" : "text-gray-500 dark:text-gray-400"
           )}
         >
           ব্যয় (Expense)
@@ -999,7 +1152,7 @@ const AddTransactionForm: React.FC<{
           onClick={() => { setType('income'); setCategory(''); }}
           className={cn(
             "flex-1 py-2.5 rounded-lg text-sm font-bold transition-all",
-            type === 'income' ? "bg-white text-emerald-600 shadow-sm" : "text-gray-500"
+            type === 'income' ? "bg-white dark:bg-gray-700 text-emerald-600 dark:text-emerald-400 shadow-sm" : "text-gray-500 dark:text-gray-400"
           )}
         >
           আয় (Income)
@@ -1008,22 +1161,22 @@ const AddTransactionForm: React.FC<{
 
       <div className="space-y-4">
         <div>
-          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">টাকার পরিমাণ</label>
+          <label className="block text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">টাকার পরিমাণ</label>
           <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-lg">৳</span>
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 font-bold text-lg">৳</span>
             <input 
               type="number" 
               placeholder="0.00"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 bg-gray-50 border-none rounded-xl text-xl font-bold focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+              className="w-full pl-10 pr-4 py-3 bg-gray-50 dark:bg-gray-800 border-none rounded-xl text-xl font-bold focus:ring-2 focus:ring-emerald-500 outline-none transition-all dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
               required
             />
           </div>
         </div>
 
         <div>
-          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">ক্যাটাগরি</label>
+          <label className="block text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">ক্যাটাগরি</label>
           <div className="grid grid-cols-3 gap-2">
             {CATEGORIES[type].map(cat => (
               <button
@@ -1033,8 +1186,8 @@ const AddTransactionForm: React.FC<{
                 className={cn(
                   "p-2.5 rounded-xl border-2 text-center transition-all",
                   category === cat.id 
-                    ? "border-emerald-500 bg-emerald-50 text-emerald-700" 
-                    : "border-gray-100 hover:border-gray-200 text-gray-600"
+                    ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" 
+                    : "border-gray-100 dark:border-gray-800 hover:border-gray-200 dark:hover:border-gray-700 text-gray-600 dark:text-gray-400"
                 )}
               >
                 <p className="text-[10px] font-bold">{cat.label}</p>
@@ -1049,13 +1202,13 @@ const AddTransactionForm: React.FC<{
             animate={{ opacity: 1, y: 0 }}
             className="space-y-1.5"
           >
-            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider">ক্যাটাগরির নাম লিখুন</label>
+            <label className="block text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">ক্যাটাগরির নাম লিখুন</label>
             <input 
               type="text" 
               placeholder="যেমন: উপহার, বোনাস ইত্যাদি"
               value={customCategory}
               onChange={(e) => setCustomCategory(e.target.value)}
-              className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl text-sm font-medium focus:ring-2 focus:ring-emerald-500 outline-none transition-all"
+              className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border-none rounded-xl text-sm font-medium focus:ring-2 focus:ring-emerald-500 outline-none transition-all dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
               required
             />
           </motion.div>
@@ -1063,22 +1216,22 @@ const AddTransactionForm: React.FC<{
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">তারিখ</label>
+            <label className="block text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">তারিখ</label>
             <input 
               type="date" 
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="w-full px-3 py-2.5 bg-gray-50 border-none rounded-lg text-xs font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
+              className="w-full px-3 py-2.5 bg-gray-50 dark:bg-gray-800 border-none rounded-lg text-xs font-medium focus:ring-2 focus:ring-emerald-500 outline-none dark:text-white [color-scheme:dark]"
             />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">নোট (ঐচ্ছিক)</label>
+            <label className="block text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">নোট (ঐচ্ছিক)</label>
             <input 
               type="text" 
               placeholder="কি বাবদ খরচ?"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              className="w-full px-3 py-2.5 bg-gray-50 border-none rounded-lg text-xs font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
+              className="w-full px-3 py-2.5 bg-gray-50 dark:bg-gray-800 border-none rounded-lg text-xs font-medium focus:ring-2 focus:ring-emerald-500 outline-none dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
             />
           </div>
         </div>
@@ -1086,7 +1239,7 @@ const AddTransactionForm: React.FC<{
 
       <button 
         type="submit"
-        className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-base shadow-lg shadow-emerald-100 transition-all active:scale-[0.98]"
+        className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-base shadow-lg shadow-emerald-100 dark:shadow-none transition-all active:scale-[0.98]"
       >
         সেভ করুন
       </button>
